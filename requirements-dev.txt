@@ -1,0 +1,7 @@
+# Local dev/test dependencies only -- NOT what runs on the Databricks cluster (the
+# cluster runtime already provides pyspark, delta-lake, etc. at the versions Databricks
+# ships). This file is only for running tests/ on your own machine before pushing.
+pyspark==3.5.3
+delta-spark==3.2.0
+pytest>=8.0.0
+zipcodes>=1.2.0
