@@ -26,7 +26,7 @@ class PipelineConfig:
     # --- ADLS Gen2 storage (External Location) -----------------------------------
     # TODO: replace with your real storage account + container names. This is the
     # single place that needs to change once your Azure resources exist.
-    storage_account: str = os.environ.get("FINBANK_STORAGE_ACCOUNT", "REPLACE_ME_STORAGE_ACCOUNT")
+    storage_account: str = os.environ.get("FINBANK_STORAGE_ACCOUNT", "stfinbankproj")
     raw_container: str = "raw"
     checkpoints_container: str = "checkpoints"
 
