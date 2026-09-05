@@ -82,6 +82,12 @@ TRANSACTIONS_SCHEMA_HINTS = (
 )
 
 
+# Columns Auto Loader adds itself as part of its own mechanics (rescued malformed data,
+# in future maybe other internal columns) rather than anything present in the source
+# file. These are expected on every run and shouldn't be reported as schema drift.
+AUTOLOADER_INTERNAL_COLUMNS = {"_rescued_data"}
+
+
 def validate_expected_columns(actual_columns, expected_columns, source_name: str) -> dict:
     """
     Compare what Auto Loader actually inferred against what the design doc assumed.
@@ -89,8 +95,12 @@ def validate_expected_columns(actual_columns, expected_columns, source_name: str
     Returns a dict report instead of raising, so a Bronze ingestion run never fails just
     because a column name drifted -- it logs the drift loudly so you notice and go fix
     the design doc / downstream Silver code, which is the actual point of profiling.
+
+    Auto Loader's own internal columns (AUTOLOADER_INTERNAL_COLUMNS) are excluded from
+    the comparison since their presence isn't drift against the source file, it's just
+    Auto Loader doing what rescuedDataColumn was configured to do.
     """
-    actual_set = set(actual_columns)
+    actual_set = set(actual_columns) - AUTOLOADER_INTERNAL_COLUMNS
     expected_set = set(expected_columns)
     report = {
         "source": source_name,
