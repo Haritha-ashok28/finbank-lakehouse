@@ -59,7 +59,7 @@ def ingest_csv_autoloader(
 
     bronze_df = (
         df.withColumn("_ingested_at", F.current_timestamp())
-        .withColumn("_source_file", F.input_file_name())
+        .withColumn("_source_file", F.col("_metadata.file_path"))
     )
 
     query = (
