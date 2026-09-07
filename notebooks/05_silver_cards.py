@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Silver: Cards (whole-entity SCD2)
 # MAGIC Every tracked column change (status/limit/type) creates a new version row.
@@ -8,12 +12,18 @@
 
 # COMMAND ----------
 
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 import sys
 sys.path.append("../")
 
 from pyspark.sql import functions as F
 from src.silver.scd_utils import scd2_merge
 from src.utils.config import cfg
+from src.utils.transforms import parse_currency
+from src.utils.governance import set_table_and_column_comments
 
 # COMMAND ----------
 
@@ -27,7 +37,7 @@ cards_clean = bronze_cards.select(
     F.concat(F.lit("****-****-****-"), F.substring("card_number", -4, 4)).alias("card_number_masked"),
     "expires",
     "has_chip",
-    F.col("credit_limit").cast("double").alias("credit_limit"),
+    parse_currency("credit_limit").alias("credit_limit"),
 )
 
 # COMMAND ----------
@@ -40,10 +50,13 @@ cards_clean = bronze_cards.select(
 # COMMAND ----------
 
 orphans = cards_clean.join(
-    spark.table(cfg.table("silver", "customers")).filter("is_current = true").select("id"),
-    cards_clean.client_id == F.col("id"),
+    spark.table(cfg.table("silver", "customers"))
+    .filter("is_current = true")
+    .select(F.col("id").alias("customer_id")),
+    cards_clean.client_id == F.col("customer_id"),
     "left_anti",
 )
+
 orphan_count = orphans.count()
 if orphan_count > 0:
     print(f"[DATA QUALITY WARNING] {orphan_count} cards reference a client_id with no Silver customer row.")
@@ -60,3 +73,23 @@ scd2_merge(
 )
 
 display(spark.table(cfg.table("silver", "cards")).filter("is_current = true").limit(20))
+
+# COMMAND ----------
+
+set_table_and_column_comments(
+    spark,
+    cfg.table("silver", "cards"),
+    table_comment=(
+        "Card dimension. Whole-entity SCD2: any tracked column change (card_type, "
+        "has_chip, credit_limit) creates a new version row."
+    ),
+    column_comments={
+        "client_id": "FK to silver.customers.id.",
+        "card_number_masked": "Card number masked to last 4 digits at ingestion into Silver. The unmasked PAN never leaves Bronze.",
+        "credit_limit": (
+            "Cleaned numeric credit limit (see parse_currency in src/utils/transforms.py). "
+            "Source arrives as a \"$\"-formatted string."
+        ),
+        "is_current": "True for the row that is the currently active version of this business key.",
+    },
+)

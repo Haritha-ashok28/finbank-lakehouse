@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Bronze: Cards ingestion
 # MAGIC Auto Loader ingestion of `cards_data.csv` into `finbank.bronze.cards`.
@@ -11,6 +15,8 @@ sys.path.append("../")  # Databricks Repos sets cwd to the notebook's folder; re
 from src.ingestion.bronze_common import ingest_csv_autoloader
 from src.utils.config import cfg
 from src.utils.schemas import CARDS_SCHEMA_HINTS, CARDS_EXPECTED_COLUMNS
+from src.utils.data_quality import row_count_sanity_check, rescued_data_check
+from src.utils.governance import set_table_and_column_comments
 
 # COMMAND ----------
 
@@ -27,7 +33,8 @@ display(cards_bronze.limit(20))
 
 # COMMAND ----------
 
-print(f"Bronze cards row count: {cards_bronze.count()}")
+row_count_sanity_check(cards_bronze, "Bronze cards")
+rescued_data_check(cards_bronze, "Bronze cards")
 
 # COMMAND ----------
 
@@ -45,3 +52,26 @@ orphans = spark.sql(f"""
     ON c.client_id = u.id
 """)
 display(orphans)
+
+# COMMAND ----------
+
+set_table_and_column_comments(
+    spark,
+    cfg.table("bronze", "cards"),
+    table_comment=(
+        "Raw Auto Loader landing zone for cards_data.csv (CaixaBank/Kaggle). "
+        "One row per source CSV row, no transformation applied."
+    ),
+    column_comments={
+        "id": "Card id from the source file.",
+        "client_id": "FK to customers.id (bronze.customers / silver.customers).",
+        "credit_limit": (
+            "Raw string as ingested, e.g. \"$24295\" -- NOT yet numeric. "
+            "Cleaned in Silver via parse_currency()."
+        ),
+        "_rescued_data": (
+            "Auto Loader's rescued-data column: anything that didn't match the schema hints "
+            "lands here instead of being dropped."
+        ),
+    },
+)

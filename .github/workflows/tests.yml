@@ -1,0 +1,37 @@
+name: Tests
+
+# Runs the pytest suite (SCD change-detection + fraud rule unit tests) on every push
+# and PR against main. Uses plain local PySpark, not a Databricks cluster -- these are
+# exactly the tests in tests/ that were already designed to run without one (see
+# tests/conftest.py and src/silver/scd_utils.py's own design note on what this sandbox
+# could and couldn't verify against a real cluster).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # PySpark needs a JVM. Pin a specific distribution/version rather than relying on
+      # whatever ubuntu-latest happens to ship, so this doesn't silently break on a
+      # future runner image update.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest tests/ -v

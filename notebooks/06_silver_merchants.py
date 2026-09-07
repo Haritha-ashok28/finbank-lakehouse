@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Silver: Merchants (SCD1)
 # MAGIC Deduplicated from the transactions file (merchant_id, city, state, zip) and joined
@@ -15,6 +19,8 @@ import json
 from pyspark.sql import functions as F
 from src.silver.scd_utils import scd1_upsert
 from src.utils.config import cfg
+from src.utils.data_quality import null_count_report
+from src.utils.governance import set_table_and_column_comments
 
 # COMMAND ----------
 
@@ -43,6 +49,10 @@ print(f"Distinct merchants: {merchants.count()}")
 
 # COMMAND ----------
 
+display(null_count_report(merchants))
+
+# COMMAND ----------
+
 scd1_upsert(
     spark=spark,
     source_df=merchants,
@@ -51,3 +61,19 @@ scd1_upsert(
 )
 
 display(spark.table(cfg.table("silver", "merchants")).limit(20))
+
+# COMMAND ----------
+
+set_table_and_column_comments(
+    spark,
+    cfg.table("silver", "merchants"),
+    table_comment=(
+        "Merchant dimension, deduplicated from the Transactions source file. "
+        "SCD1: overwritten in place, no history kept."
+    ),
+    column_comments={
+        "id": "Merchant id (from transactions.merchant_id).",
+        "merchant_zip": "Merchant ZIP code as ingested (not yet joined to lat/long -- see silver.merchant_geo_reference).",
+        "mcc_description": "Human-readable merchant category, joined from mcc_codes.json. NULL if the mcc wasn't found in the lookup.",
+    },
+)
