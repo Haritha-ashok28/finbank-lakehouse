@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Silver: Customers (hybrid SCD2 + SCD3)
 # MAGIC - `income_tier` -> SCD2 (full history, new row per change)
@@ -16,12 +20,28 @@ sys.path.append("../")
 from pyspark.sql import functions as F
 from src.silver.scd_utils import scd2_with_scd3_merge
 from src.utils.config import cfg
+from src.utils.transforms import parse_currency
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
+cfg.ensure_schemas(spark)
 
 # COMMAND ----------
 
 bronze_customers = spark.table(cfg.table("bronze", "customers"))
 
-customers_with_tier = bronze_customers.withColumn(
+customers_cleaned = (
+    bronze_customers
+    .withColumn("yearly_income", parse_currency("yearly_income"))
+    .withColumn("per_capita_income", parse_currency("per_capita_income"))
+    .withColumn("total_debt", parse_currency("total_debt"))
+)
+
+customers_with_tier = customers_cleaned.withColumn(
     "income_tier",
     F.when(F.col("yearly_income") < 30000, "low")
     .when(F.col("yearly_income") < 80000, "medium")

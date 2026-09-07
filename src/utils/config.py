@@ -79,6 +79,22 @@ class PipelineConfig:
         """Fully qualified three-part Unity Catalog table name, e.g. table('silver', 'customers')."""
         schema = {"bronze": self.bronze_schema, "silver": self.silver_schema, "gold": self.gold_schema}[layer]
         return f"{self.catalog}.{schema}.{name}"
+    
+    def ensure_schemas(self, spark) -> None:
+        """
+        Create the catalog and all three medallion schemas if they don't already exist.
+
+        Idempotent (CREATE ... IF NOT EXISTS), so it's safe to call from the first
+        notebook of every layer (01 for bronze, 04 for silver, 09 for gold) instead of
+        assuming an earlier notebook already ran in this session. Unity Catalog schemas
+        persist across clusters/sessions once created -- in practice this is a no-op
+        after the first successful run -- it's here so a fresh workspace, or a reviewer
+        running the repo cold, doesn't hit SCHEMA_NOT_FOUND just because they ran a
+        notebook out of order or skipped 01.
+        """
+        spark.sql(f"CREATE CATALOG IF NOT EXISTS {self.catalog}")
+        for schema in (self.bronze_schema, self.silver_schema, self.gold_schema):
+            spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self.catalog}.{schema}")
 
 
 cfg = PipelineConfig()

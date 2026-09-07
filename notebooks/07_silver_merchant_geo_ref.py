@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Silver: Merchant Geo Reference (SCD1, load-once reference table)
 # MAGIC Merchants only carry a ZIP code, not lat/long -- this table fills that gap so the
@@ -18,6 +22,7 @@ sys.path.append("../")
 
 from src.silver.scd_utils import scd1_upsert
 from src.utils.config import cfg
+from src.utils.transforms import clean_zip
 
 # COMMAND ----------
 
@@ -25,6 +30,7 @@ zip_centroids = (
     spark.read.option("header", "true").option("inferSchema", "true")
     .csv(cfg.raw_path("reference/zip_centroids.csv"))
     .withColumnRenamed("zip_code", "zip")
+    .withColumn("zip", clean_zip("zip"))
 )
 
 print(f"ZIP centroids loaded: {zip_centroids.count()}")

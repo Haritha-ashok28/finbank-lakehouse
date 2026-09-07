@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Silver: Merchants (SCD1)
 # MAGIC Deduplicated from the transactions file (merchant_id, city, state, zip) and joined

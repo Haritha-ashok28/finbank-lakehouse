@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Bronze: Cards ingestion
 # MAGIC Auto Loader ingestion of `cards_data.csv` into `finbank.bronze.cards`.

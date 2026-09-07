@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Silver: Transactions fact table + batch fraud scoring
 # MAGIC Builds the Transactions fact table (renaming `use_chip` -> `channel` per the design
@@ -8,12 +12,18 @@
 
 # COMMAND ----------
 
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 import sys
 sys.path.append("../")
 
 from pyspark.sql import functions as F
 from src.utils.config import cfg
 from src.silver.fraud_rules import batch_score_all_rules
+from src.utils.transforms import parse_currency
+from src.utils.transforms import clean_zip
 
 # COMMAND ----------
 
@@ -39,10 +49,10 @@ transactions = bronze_txns.select(
     F.col("date").cast("timestamp").alias("date"),
     "client_id",
     "card_id",
-    F.col("amount").cast("double").alias("amount"),
+    parse_currency("amount").alias("amount"),
     F.coalesce(channel_expr[F.col("use_chip")], F.col("use_chip")).alias("channel"),
     "merchant_id",
-    "zip",
+    clean_zip("zip").alias("zip"),
     "mcc",
 )
 
@@ -64,6 +74,14 @@ if missing_geo > 0:
     print(f"[DATA QUALITY WARNING] {missing_geo} transactions have a merchant ZIP not found "
           f"in the ZIP centroid reference (out-of-country or malformed ZIP). Geo-jump rule "
           f"can't evaluate these -- they pass through as flag_geo_jump = false, not fraud-cleared.")
+
+# COMMAND ----------
+
+transactions_with_geo.filter(F.col("merchant_latitude").isNull()) \
+    .groupBy("channel", F.col("zip").isNull().alias("zip_is_null")) \
+    .count() \
+    .orderBy(F.desc("count")) \
+    .show()
 
 # COMMAND ----------
 

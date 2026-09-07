@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Bronze: Customers ingestion
 # MAGIC Auto Loader ingestion of `users_data.csv` into `finbank.bronze.customers`.
@@ -11,17 +15,25 @@
 import sys
 sys.path.append("../")  # Databricks Repos sets cwd to the notebook's folder; repo root is one level up
 
+# COMMAND ----------
+
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
 from src.ingestion.bronze_common import ingest_csv_autoloader
 from src.utils.config import cfg
 from src.utils.schemas import CUSTOMERS_SCHEMA_HINTS, CUSTOMERS_EXPECTED_COLUMNS
 
 # COMMAND ----------
 
-spark.sql(f"CREATE CATALOG IF NOT EXISTS {cfg.catalog}")
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {cfg.table('bronze', '').rsplit('.', 1)[0]}")
+# spark.sql(f"CREATE CATALOG IF NOT EXISTS {cfg.catalog}")
+# spark.sql(f"CREATE SCHEMA IF NOT EXISTS {cfg.table('bronze', '').rsplit('.', 1)[0]}")
+cfg.ensure_schemas(spark)
 
 # COMMAND ----------
 
+# DBTITLE 1,Customers bronze ingestion
 customers_bronze = ingest_csv_autoloader(
     spark=spark,
     source_folder=cfg.customers_folder,
@@ -32,6 +44,10 @@ customers_bronze = ingest_csv_autoloader(
 )
 
 display(customers_bronze.limit(20))
+
+# COMMAND ----------
+
+display(spark.sql(f"SELECT COUNT(*) FROM {cfg.table('bronze', 'customers')}"))
 
 # COMMAND ----------
 

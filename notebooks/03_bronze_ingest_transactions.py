@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Bronze: Transactions ingestion
 # MAGIC Auto Loader ingestion of `transactions_data.csv` (~24M rows) into `finbank.bronze.transactions`.

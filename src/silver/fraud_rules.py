@@ -147,5 +147,5 @@ def batch_score_all_rules(df: DataFrame) -> DataFrame:
         # Simple additive score out of 100: each triggered rule contributes equally.
         # Tune the weighting once you've seen how often each rule fires on real data --
         # equal weighting is a reasonable v1, not a claim that all 4 rules are equally severe.
-        (sum(F.col(c).cast("int") for c in flag_cols) * F.lit(25)).cast("int"),
+        (sum(F.coalesce(F.col(c).cast("int"), F.lit(0)) for c in flag_cols) * F.lit(25)).cast("int"),
     )
