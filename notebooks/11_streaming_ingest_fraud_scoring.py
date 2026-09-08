@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Streaming: ingest + fraud scoring
 # MAGIC Reads the generator's landing table as a stream, joins the small reference tables
@@ -8,6 +12,10 @@
 # MAGIC
 # MAGIC Run 10_streaming_generator_job.py (at least briefly) before this, so the landing
 # MAGIC table exists and has rows to stream.
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -87,13 +95,23 @@ reason_expr = F.concat_ws(", ", *[F.when(F.col(c), F.lit(c.replace("flag_", ""))
 fraud_stream = stateful_scored.withColumn(
     "fraud_flag", F.greatest(*[F.col(c).cast("int") for c in flag_cols]).cast("boolean")
 ).withColumn(
-    "risk_score", (sum(F.col(c).cast("int") for c in flag_cols) * F.lit(25)).cast("int")
+    "risk_score",
+    sum(F.coalesce(F.col(c).cast("int"), F.lit(0)) for c in flag_cols).cast("int") * F.lit(25),
 ).withColumn(
     "risk_reason", F.when(F.length(reason_expr) > 0, reason_expr)
 ).select(
     "id", F.col("id").alias("transaction_id"), "client_id", "card_id",
     "fraud_flag", "risk_score", "risk_reason", F.current_timestamp().alias("scored_at"),
 )
+
+# COMMAND ----------
+
+
+dbutils.fs.rm(cfg.checkpoint_path("fraud_risk_streaming"), recurse=True)  
+
+# COMMAND ----------
+
+spark.conf.set("spark.sql.shuffle.partitions", "8")
 
 # COMMAND ----------
 
@@ -105,4 +123,23 @@ query = (
     .toTable(cfg.table("silver", "fraud_risk_streaming"))
 )
 
-query.awaitTermination()
+query.awaitTermination(60)  # wait up to 60 seconds
+if query.isActive:
+    query.stop()
+    print("Stopped after hitting the 60-second timeout.")
+else:
+    print("Query finished on its own before the timeout.")
+
+# COMMAND ----------
+
+df = spark.table(cfg.table("silver", "fraud_risk_streaming"))
+print(df.count())
+df.filter("fraud_flag = true AND risk_score IS NULL").count()
+
+# COMMAND ----------
+
+spark.sql(f"DROP TABLE IF EXISTS {cfg.table('bronze', 'transactions_stream_landing')}")
+spark.sql(f"DROP TABLE IF EXISTS {cfg.table('silver', 'fraud_risk_streaming')}")
+dbutils.fs.rm(cfg.checkpoint_path("transactions_stream_landing"), recurse=True)
+dbutils.fs.rm(cfg.checkpoint_path("fraud_risk_streaming"), recurse=True)
+print("Landing table, output table, and both checkpoints wiped clean.")

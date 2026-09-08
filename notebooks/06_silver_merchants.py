@@ -10,6 +10,7 @@
 # MAGIC spec -- a merchant's recorded category/location just gets overwritten if it changes.
 
 # COMMAND ----------
+
 import sys
 sys.path.append("../")
 

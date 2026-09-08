@@ -31,8 +31,67 @@ cfg.ensure_schemas(spark)
 
 # COMMAND ----------
 
+# DBTITLE 1,Load Silver sources
 txns = spark.table(cfg.table("silver", "transactions"))
-fraud = spark.table(cfg.table("silver", "fraud_risk"))
+txn_enrichment = txns.select(
+    F.col("id").alias("txn_id"),
+    F.col("date").alias("date"),
+    F.col("amount").alias("amount"),
+    F.col("merchant_id").alias("merchant_id"),
+)
+stream_txn_enrichment = spark.table(cfg.table("bronze", "transactions_stream_landing")).select(
+    F.col("id").alias("txn_id"),
+    F.col("date").alias("date"),
+    F.col("amount").alias("amount"),
+    F.col("merchant_id").alias("merchant_id"),
+)
+fraud_batch = (
+    spark.table(cfg.table("silver", "fraud_risk")).alias("fraud_batch")
+    .join(
+        txn_enrichment.alias("txns"),
+        F.col("fraud_batch.transaction_id") == F.col("txns.txn_id"),
+        "left",
+    )
+    .select(
+        F.col("fraud_batch.id").alias("id"),
+        F.col("fraud_batch.transaction_id").alias("transaction_id"),
+        F.col("fraud_batch.client_id").alias("client_id"),
+        F.col("fraud_batch.card_id").alias("card_id"),
+        F.col("txns.date").alias("date"),
+        F.col("txns.amount").alias("amount"),
+        F.col("txns.merchant_id").alias("merchant_id"),
+        F.col("fraud_batch.fraud_flag").alias("fraud_flag"),
+        F.col("fraud_batch.risk_score").alias("risk_score"),
+        F.col("fraud_batch.risk_reason").alias("risk_reason"),
+        F.col("fraud_batch.investigation_status").alias("investigation_status"),
+        F.lit("batch").alias("source"),
+        F.col("fraud_batch.scored_at").alias("scored_at"),
+    )
+)
+fraud_streaming = (
+    spark.table(cfg.table("silver", "fraud_risk_streaming")).alias("fraud_stream")
+    .join(
+        stream_txn_enrichment.alias("txns"),
+        F.col("fraud_stream.transaction_id") == F.col("txns.txn_id"),
+        "left",
+    )
+    .select(
+        F.col("fraud_stream.id").alias("id"),
+        F.col("fraud_stream.transaction_id").alias("transaction_id"),
+        F.col("fraud_stream.client_id").alias("client_id"),
+        F.col("fraud_stream.card_id").alias("card_id"),
+        F.col("txns.date").alias("date"),
+        F.coalesce(F.col("txns.amount"), F.lit(0.0)).alias("amount"),
+        F.col("txns.merchant_id").alias("merchant_id"),
+        F.col("fraud_stream.fraud_flag").alias("fraud_flag"),
+        F.col("fraud_stream.risk_score").alias("risk_score"),
+        F.col("fraud_stream.risk_reason").alias("risk_reason"),
+        F.lit("open").alias("investigation_status"),
+        F.lit("streaming").alias("source"),
+        F.col("fraud_stream.scored_at").alias("scored_at"),
+    )
+)
+fraud = fraud_batch.unionByName(fraud_streaming)
 customers = spark.table(cfg.table("silver", "customers")).filter("is_current = true")
 merchants = spark.table(cfg.table("silver", "merchants"))
 
@@ -42,10 +101,10 @@ merchants = spark.table(cfg.table("silver", "merchants"))
 
 # COMMAND ----------
 
+# DBTITLE 1,Build daily fraud summary
 daily_fraud_summary = (
-    txns.join(fraud, txns.id == fraud.transaction_id)
-    .withColumn("txn_date", F.to_date("date"))
-    .groupBy("txn_date")
+    fraud.withColumn("txn_date", F.to_date("date"))
+    .groupBy("txn_date", "source")
     .agg(
         F.count("*").alias("total_transactions"),
         F.sum(F.col("fraud_flag").cast("int")).alias("flagged_transactions"),
@@ -63,16 +122,17 @@ row_count_sanity_check(daily_fraud_summary, "gold.daily_fraud_summary")
 
 # COMMAND ----------
 
+# DBTITLE 1,Describe customer risk source
 # MAGIC %md ### 2. Customer risk profile (Relationship Manager persona)
-# MAGIC Note: `txns` and `fraud` both carry `client_id`, so the `groupBy` below deliberately
-# MAGIC references the column via `txns.client_id` (bound to the pre-join dataframe) rather
-# MAGIC than the bare string `"client_id"`, which would be ambiguous after the join.
+# MAGIC Built from the unified fraud source, which unions batch `silver.fraud_risk` with
+# MAGIC streaming `silver.fraud_risk_streaming` after enriching streaming rows from
+# MAGIC `silver.transactions`.
 
 # COMMAND ----------
 
+# DBTITLE 1,Build customer risk profile
 customer_risk_profile = (
-    txns.join(fraud, txns.id == fraud.transaction_id)
-    .groupBy(txns.client_id)
+    fraud.groupBy("client_id")
     .agg(
         F.count("*").alias("total_transactions"),
         F.sum("amount").alias("total_spend"),
@@ -80,6 +140,7 @@ customer_risk_profile = (
         F.sum(F.col("fraud_flag").cast("int")).alias("flagged_transaction_count"),
         F.max("risk_score").alias("max_risk_score"),
         F.max("date").alias("last_transaction_date"),
+        F.array_sort(F.collect_set("source")).alias("source"),
     )
     .join(customers.select("id", "income_tier", "address"), F.col("client_id") == F.col("id"))
     .drop("id")
@@ -96,9 +157,10 @@ row_count_sanity_check(customer_risk_profile, "gold.customer_risk_profile")
 
 # COMMAND ----------
 
+# DBTITLE 1,Build merchant category spend
 merchant_category_spend = (
-    txns.join(merchants, txns.merchant_id == merchants.id)
-    .groupBy("mcc_description")
+    fraud.join(merchants, fraud.merchant_id == merchants.id)
+    .groupBy("mcc_description", fraud.source.alias("source"))
     .agg(
         F.count("*").alias("transaction_count"),
         F.sum("amount").alias("total_amount"),
@@ -114,30 +176,32 @@ row_count_sanity_check(merchant_category_spend, "gold.merchant_category_spend")
 
 # COMMAND ----------
 
+# DBTITLE 1,Describe investigation queue source
 # MAGIC %md ### 4. Investigation queue (Fraud/Risk Analyst + Compliance/Auditor persona)
 # MAGIC Auditor has full unmasked access per the security matrix -- this Gold table is still
 # MAGIC PII-light (no card numbers), full row-level access is enforced at the Silver/Bronze
 # MAGIC layer via Unity Catalog, not by what Gold happens to select.
 # MAGIC
-# MAGIC Both `fraud` and `txns` carry their own `client_id`/`card_id` columns (fraud_risk
-# MAGIC stores a copy of the transaction's keys), so selecting either bare name after the
-# MAGIC join is ambiguous -- same class of bug fixed in notebook 05's orphan-key check.
-# MAGIC Every column below is picked explicitly from the dataframe that owns it instead.
+# MAGIC This queue now reads from the unified fraud source, which unions batch
+# MAGIC `silver.fraud_risk` with streaming `silver.fraud_risk_streaming` after enriching the
+# MAGIC streaming rows from `silver.transactions` and defaulting `investigation_status` to
+# MAGIC `'open'`.
 
 # COMMAND ----------
 
+# DBTITLE 1,Build investigation queue
 investigation_queue = (
     fraud.filter("fraud_flag = true AND investigation_status = 'open'")
-    .join(txns, fraud.transaction_id == txns.id)
     .select(
-        fraud.transaction_id,
-        fraud.client_id,
-        fraud.card_id,
-        txns.date,
-        txns.amount,
-        fraud.risk_score,
-        fraud.risk_reason,
-        fraud.investigation_status,
+        "transaction_id",
+        "client_id",
+        "card_id",
+        "date",
+        "amount",
+        "risk_score",
+        "risk_reason",
+        "investigation_status",
+        "source",
     )
     .orderBy(F.desc("risk_score"))
 )
@@ -149,7 +213,8 @@ row_count_sanity_check(investigation_queue, "gold.investigation_queue")
 
 # COMMAND ----------
 
-display(daily_fraud_summary.orderBy(F.desc("txn_date")).limit(10))
+# DBTITLE 1,Cell 14
+display(daily_fraud_summary.orderBy(F.desc("txn_date"), "source").limit(10))
 
 # COMMAND ----------
 
@@ -157,6 +222,7 @@ display(daily_fraud_summary.orderBy(F.desc("txn_date")).limit(10))
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 16
 set_table_and_column_comments(
     spark,
     cfg.table("gold", "daily_fraud_summary"),
@@ -168,6 +234,7 @@ set_table_and_column_comments(
         "txn_date": "Calendar date the transactions occurred on (from silver.transactions.date).",
         "fraud_rate": "flagged_transactions / total_transactions for this date.",
         "flagged_amount": "Sum of amount for transactions where fraud_flag = true on this date.",
+        "source": "Fraud scoring source for this aggregate row: 'batch' from silver.fraud_risk or 'streaming' from silver.fraud_risk_streaming.",
     },
 )
 
@@ -183,6 +250,7 @@ set_table_and_column_comments(
         "max_risk_score": "Highest risk_score across all of this customer's scored transactions.",
         "flagged_transaction_count": "Count of this customer's transactions where fraud_flag = true.",
         "income_tier": "Current SCD2-tracked income tier from silver.customers (see design spec).",
+        "source": "Sorted array of fraud scoring sources that contributed to this customer's aggregate row, from silver.fraud_risk and/or silver.fraud_risk_streaming.",
     },
 )
 
@@ -196,6 +264,7 @@ set_table_and_column_comments(
     ),
     column_comments={
         "mcc_description": "Human-readable merchant category, joined from silver.merchants.",
+        "source": "Fraud scoring source for this aggregate row: 'batch' from silver.fraud_risk or 'streaming' from silver.fraud_risk_streaming.",
     },
 )
 
@@ -213,5 +282,6 @@ set_table_and_column_comments(
             "Always 'open' at Gold-refresh time; a real workflow would update this in "
             "Silver as cases get worked and re-run this notebook to refresh the queue."
         ),
+        "source": "Fraud scoring source for this queue row: 'batch' from silver.fraud_risk or 'streaming' from silver.fraud_risk_streaming.",
     },
 )

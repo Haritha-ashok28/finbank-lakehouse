@@ -1,4 +1,11 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# dependencies = [
+#   "dbldatagen",
+# ]
+# ///
 # MAGIC %md
 # MAGIC # Streaming: live transaction generator
 # MAGIC Runs the dbldatagen-based organic traffic generator, writing to a Delta "landing"
@@ -10,6 +17,14 @@
 # MAGIC
 # MAGIC Run 01-07 (Bronze + Silver dimensions) before this -- the generator seeds from real
 # MAGIC card_id/client_id/merchant_id values in Silver, it does not invent its own.
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
+# MAGIC %pip install dbldatagen
 
 # COMMAND ----------
 
@@ -59,6 +74,11 @@ query = (
     .toTable(landing_table)
 )
 
+
+# COMMAND ----------
+
+spark.table(landing_table).count()
+
 # COMMAND ----------
 
 # MAGIC %md
@@ -75,4 +95,9 @@ if run_mode == "inject_scenario_now":
 
 # COMMAND ----------
 
-query.awaitTermination()
+query.awaitTermination(60)
+if query.isActive:
+    query.stop()
+    print("Stopped after hitting the 60-second timeout.")
+else:
+    print("Query finished on its own before the timeout.")
