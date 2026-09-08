@@ -190,7 +190,7 @@ def scd2_with_scd3_merge(
         .withColumn("is_current", F.lit(True))
     )
 
-        insert_values = {c: F.col(f"s.{c}") for c in source_df.columns}
+    insert_values = {c: F.col(f"s.{c}") for c in source_df.columns}
     insert_values[previous_col] = F.lit(None).cast(dict(source_df.dtypes)[scd3_col])
     insert_values["effective_start"] = effective_ts
     insert_values["effective_end"] = F.lit(None).cast("timestamp")
