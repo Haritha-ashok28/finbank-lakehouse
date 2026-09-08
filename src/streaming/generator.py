@@ -45,12 +45,16 @@ CHANNEL_WEIGHTS = {"swipe": 45, "chip": 45, "online": 10}  # dbldatagen weights 
 def load_seed_ids(spark: SparkSession) -> dict:
     """Pull real IDs from Silver so the generator never invents a card/customer/merchant
     pair that doesn't exist in the batch dimensions."""
-    cards = spark.table(cfg.table("silver", "cards")).filter("is_current = true").select("id", "client_id")
+    cards = (
+        spark.table(cfg.table("silver", "cards"))
+        .filter("is_current = true")
+        .select(F.col("id").alias("card_id"), "client_id")
+    )
     merchants = spark.table(cfg.table("silver", "merchants")).select("id")
 
     return {
         "card_to_client": cards,  # kept as a DataFrame: joined against, not collected to driver
-        "card_ids": [r["id"] for r in cards.select("id").collect()],
+        "card_ids": [r["card_id"] for r in cards.select("card_id").collect()],
         "merchant_ids": [r["id"] for r in merchants.select("id").collect()],
     }
 
