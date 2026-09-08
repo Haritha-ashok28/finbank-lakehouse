@@ -101,7 +101,7 @@ query = (
     fraud_stream.writeStream.format("delta")
     .option("checkpointLocation", cfg.checkpoint_path("fraud_risk_streaming"))
     .outputMode("append")
-    .trigger(processingTime="10 seconds")
+    .trigger(availableNow=True)
     .toTable(cfg.table("silver", "fraud_risk_streaming"))
 )
 

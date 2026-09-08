@@ -10,7 +10,6 @@
 # MAGIC spec -- a merchant's recorded category/location just gets overwritten if it changes.
 
 # COMMAND ----------
-
 import sys
 sys.path.append("../")
 
@@ -21,6 +20,7 @@ from src.silver.scd_utils import scd1_upsert
 from src.utils.config import cfg
 from src.utils.data_quality import null_count_report
 from src.utils.governance import set_table_and_column_comments
+from src.utils.transforms import clean_zip
 
 # COMMAND ----------
 
@@ -41,7 +41,7 @@ merchants = (
     .dropDuplicates(["merchant_id"])
     .join(mcc_df, on="mcc", how="left")
     .withColumnRenamed("merchant_id", "id")
-    .withColumnRenamed("zip", "merchant_zip")
+    .withColumn("merchant_zip", clean_zip("zip"))
     .select("id", "merchant_city", "merchant_state", "merchant_zip", "mcc", "mcc_description")
 )
 

@@ -55,7 +55,7 @@ query = (
     organic_stream.writeStream.format("delta")
     .option("checkpointLocation", cfg.checkpoint_path("transactions_stream_landing"))
     .outputMode("append")
-    .trigger(processingTime="5 seconds")
+    .trigger(availableNow=True)
     .toTable(landing_table)
 )
 
