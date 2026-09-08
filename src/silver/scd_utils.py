@@ -190,6 +190,12 @@ def scd2_with_scd3_merge(
         .withColumn("is_current", F.lit(True))
     )
 
+        insert_values = {c: F.col(f"s.{c}") for c in source_df.columns}
+    insert_values[previous_col] = F.lit(None).cast(dict(source_df.dtypes)[scd3_col])
+    insert_values["effective_start"] = effective_ts
+    insert_values["effective_end"] = F.lit(None).cast("timestamp")
+    insert_values["is_current"] = F.lit(True)
+
     target = DeltaTable.forName(spark, target_table)
     (
         target.alias("t")
@@ -198,15 +204,9 @@ def scd2_with_scd3_merge(
             condition=scd2_change_condition,
             set={"effective_end": effective_ts, "is_current": F.lit(False)},
         )
-        .whenNotMatchedInsertAll()
+        .whenNotMatchedInsert(values=insert_values)
         .execute()
     )
-    spark.sql(f"""
-        UPDATE {target_table}
-        SET effective_start = current_timestamp(), effective_end = NULL, is_current = true,
-            {previous_col} = NULL
-        WHERE effective_start IS NULL
-    """)
     if new_versions.take(1):
         new_versions.select(spark.table(target_table).columns).write.format("delta").mode("append").saveAsTable(target_table)
 
