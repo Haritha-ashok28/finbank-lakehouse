@@ -40,8 +40,7 @@ rescued_data_check(cards_bronze, "Bronze cards")
 
 # MAGIC %md
 # MAGIC ### Quick referential sanity check (card.client_id -> customers.id)
-# MAGIC Cheap enough to run right after ingestion; a non-zero orphan count here means either
-# MAGIC the customers file needs re-ingesting first, or the join key isn't what the design doc assumed.
+# MAGIC
 
 # COMMAND ----------
 

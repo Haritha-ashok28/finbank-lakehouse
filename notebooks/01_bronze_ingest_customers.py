@@ -17,7 +17,7 @@ sys.path.append("../")  # Databricks Repos sets cwd to the notebook's folder; re
 
 # COMMAND ----------
 
-dbutils.library.restartPython()
+# dbutils.library.restartPython()
 
 # COMMAND ----------
 
