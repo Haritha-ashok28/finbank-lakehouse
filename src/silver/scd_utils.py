@@ -113,11 +113,14 @@ def scd2_merge(
         .withColumn("is_current", F.lit(True))
     )
 
-    target = DeltaTable.forName(spark, target_table)
+    insert_values = {c: F.col(f"s.{c}") for c in source_df.columns}
+    insert_values["effective_start"] = effective_ts
+    insert_values["effective_end"] = F.lit(None).cast("timestamp")
+    insert_values["is_current"] = F.lit(True)
 
-    # Step 1: expire the current row for every changed business key; insert brand-new
-    # business keys straight away (their SCD columns get patched in step 2, since
-    # whenNotMatchedInsertAll only inserts columns that exist in `source_df`).
+    target = DeltaTable.forName(spark, target_table)
+    # Insert brand-new business keys with their SCD columns set directly (no patch-up
+    # step needed since whenNotMatchedInsert gives an explicit value for every column).
     (
         target.alias("t")
         .merge(source_df.alias("s"), key_condition)
@@ -125,17 +128,9 @@ def scd2_merge(
             condition=change_condition,
             set={"effective_end": effective_ts, "is_current": F.lit(False)},
         )
-        .whenNotMatchedInsertAll()
+        .whenNotMatchedInsert(values=insert_values)
         .execute()
     )
-
-    # Step 2: patch the SCD columns on rows that just got inserted as brand-new members
-    # (they have no effective_start yet because `source_df` never carries one).
-    spark.sql(f"""
-        UPDATE {target_table}
-        SET effective_start = current_timestamp(), effective_end = NULL, is_current = true
-        WHERE effective_start IS NULL
-    """)
 
     # Step 3: append the new "current" version row for every business key that changed.
     if new_versions.take(1):
