@@ -137,6 +137,7 @@ investigation_queue = (
         txns.amount,
         fraud.risk_score,
         fraud.risk_reason,
+        fraud.investigation_status,
     )
     .orderBy(F.desc("risk_score"))
 )
