@@ -4,6 +4,10 @@ as the rest of tests/ (see conftest.py). These are the new orphan-check / null-c
 row-count / rescued-data helpers added to close the data-quality gaps flagged against
 the design spec's "no scope-cutting" checklist.
 """
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import pytest
 
